@@ -101,7 +101,7 @@ pub const Writer = struct {
                     retries += 1;
                     // Exponential backoff with jitter
                     const jitter = @as(u64, @intCast(@mod(time.nanoTimestamp(), @as(i128, backoff_ms / 2))));
-                    time.sleep((backoff_ms + jitter) * time.ns_per_ms);
+                    std.Thread.sleep((backoff_ms + jitter) * time.ns_per_ms);
                     backoff_ms = @min(backoff_ms * 2, self.config.max_backoff_ms);
                     continue;
                 }
@@ -135,7 +135,7 @@ pub const Writer = struct {
                     retries += 1;
                     // Exponential backoff with jitter
                     const jitter = @as(u64, @intCast(@mod(time.nanoTimestamp(), @as(i128, backoff_ms / 2))));
-                    time.sleep((backoff_ms + jitter) * time.ns_per_ms);
+                    std.Thread.sleep((backoff_ms + jitter) * time.ns_per_ms);
                     backoff_ms = @min(backoff_ms * 2, self.config.max_backoff_ms);
                     continue;
                 }
@@ -256,16 +256,12 @@ pub const Writer = struct {
     }
 
     /// Check if an error is a busy/locked error that should trigger a retry.
-    fn isBusyError(_: *Self, err: anytype) bool {
-        // Map errors that indicate database is busy/locked
-        return switch (err) {
-            sqlite.SqliteError.ExecFailed => true,
-            history.HistoryError.InsertFailed => true,
-            history.HistoryError.UpdateFailed => true,
-            WriterError.TransactionFailed => true,
-            WriterError.CommitFailed => true,
-            else => false,
-        };
+    fn isBusyError(_: *Self, err: anyerror) bool {
+        return err == sqlite.SqliteError.ExecFailed or
+            err == history.HistoryError.InsertFailed or
+            err == history.HistoryError.UpdateFailed or
+            err == WriterError.TransactionFailed or
+            err == WriterError.CommitFailed;
     }
 
     /// Process any pending items from the fallback log.
@@ -457,29 +453,29 @@ test "Writer processBatch processes multiple items in transaction" {
     defer writer.deinit();
 
     // Create multiple items
-    var items_list = std.ArrayList(queue.QueueItem).init(allocator);
-    defer items_list.deinit();
+    var items_list: std.ArrayList(queue.QueueItem) = .empty;
+    defer items_list.deinit(allocator);
 
     // Track allocated memory for cleanup
-    var allocated_strings = std.ArrayList([]u8).init(allocator);
+    var allocated_strings: std.ArrayList([]u8) = .empty;
     defer {
         for (allocated_strings.items) |s| {
             allocator.free(s);
         }
-        allocated_strings.deinit();
+        allocated_strings.deinit(allocator);
     }
 
     for (0..5) |i| {
         const id = try std.fmt.allocPrint(allocator, "batch-uuid-{d}", .{i});
-        try allocated_strings.append(id);
+        try allocated_strings.append(allocator, id);
         const cmd = try std.fmt.allocPrint(allocator, "command-{d}", .{i});
-        try allocated_strings.append(cmd);
+        try allocated_strings.append(allocator, cmd);
         const cwd = try allocator.dupe(u8, "/home/user");
-        try allocated_strings.append(cwd);
+        try allocated_strings.append(allocator, cwd);
         const session = try allocator.dupe(u8, "session-batch");
-        try allocated_strings.append(session);
+        try allocated_strings.append(allocator, session);
         const hostname = try allocator.dupe(u8, "localhost");
-        try allocated_strings.append(hostname);
+        try allocated_strings.append(allocator, hostname);
 
         const item = queue.QueueItem{
             .start = protocol.StartMessage{
@@ -491,7 +487,7 @@ test "Writer processBatch processes multiple items in transaction" {
                 .hostname = hostname,
             },
         };
-        try items_list.append(item);
+        try items_list.append(allocator, item);
     }
 
     // Process batch
@@ -514,27 +510,27 @@ test "Writer processBatch with mixed start and end messages" {
     defer writer.deinit();
 
     // Track allocated memory for cleanup
-    var allocated_strings = std.ArrayList([]u8).init(allocator);
+    var allocated_strings: std.ArrayList([]u8) = .empty;
     defer {
         for (allocated_strings.items) |s| {
             allocator.free(s);
         }
-        allocated_strings.deinit();
+        allocated_strings.deinit(allocator);
     }
 
     // Create batch with start then end for same id
     const id1 = try allocator.dupe(u8, "mixed-uuid-001");
-    try allocated_strings.append(id1);
+    try allocated_strings.append(allocator, id1);
     const cmd1 = try allocator.dupe(u8, "echo hello");
-    try allocated_strings.append(cmd1);
+    try allocated_strings.append(allocator, cmd1);
     const cwd1 = try allocator.dupe(u8, "/tmp");
-    try allocated_strings.append(cwd1);
+    try allocated_strings.append(allocator, cwd1);
     const session1 = try allocator.dupe(u8, "session-mixed");
-    try allocated_strings.append(session1);
+    try allocated_strings.append(allocator, session1);
     const hostname1 = try allocator.dupe(u8, "localhost");
-    try allocated_strings.append(hostname1);
+    try allocated_strings.append(allocator, hostname1);
     const end_id1 = try allocator.dupe(u8, "mixed-uuid-001");
-    try allocated_strings.append(end_id1);
+    try allocated_strings.append(allocator, end_id1);
 
     var items = [_]queue.QueueItem{
         queue.QueueItem{

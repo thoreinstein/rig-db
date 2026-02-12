@@ -116,5 +116,5 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_server_unit_tests.step);
     test_step.dependOn(&run_protocol_unit_tests.step);
     test_step.dependOn(&run_queue_unit_tests.step);
-    // Note: uuid and client tests are run via main_unit_tests (refAllDecls)
+    // Note: uuid, client, daemon, and writer tests are run via main_unit_tests (refAllDecls)
 }

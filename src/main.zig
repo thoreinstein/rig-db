@@ -28,6 +28,9 @@ pub fn main() !void {
         try runHistoryCommand(allocator, args[2..], &stdout.interface);
     } else if (std.mem.eql(u8, command, "init")) {
         try runInitCommand(args[2..], &stdout.interface);
+    } else if (std.mem.eql(u8, command, "daemon")) {
+        const daemon_mod = @import("daemon/daemon.zig");
+        try daemon_mod.daemonMain(allocator);
     } else {
         try stdout.interface.print("Unknown command: {s}\n", .{command});
         try printUsage(&stdout.interface);
@@ -45,6 +48,7 @@ fn printUsage(writer: *std.Io.Writer) !void {
         \\Commands:
         \\  init <shell>           Generate shell integration script (zsh, bash)
         \\  history <subcommand>   Shell history tracking
+        \\  daemon                 Run the background daemon (internal use)
         \\  help, --help, -h       Show this help message
         \\  version, --version, -v Show version information
         \\
@@ -161,6 +165,7 @@ pub const daemon = struct {
     pub const protocol = @import("daemon/protocol.zig");
     pub const queue = @import("daemon/queue.zig");
     pub const writer = @import("daemon/writer.zig");
+    pub const daemon_main = @import("daemon/daemon.zig");
 };
 
 // TUI modules

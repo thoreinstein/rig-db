@@ -2,6 +2,8 @@ const std = @import("std");
 const posix = std.posix;
 const mem = std.mem;
 const fs = std.fs;
+const protocol = @import("protocol.zig");
+const queue = @import("queue.zig");
 
 /// Errors that can occur during server operations
 pub const ServerError = error{
@@ -116,47 +118,68 @@ pub const Server = struct {
         return client_fd;
     }
 
-    /// Handle a client connection: echo back any received data.
-    /// This is a simple placeholder until the full protocol is implemented.
-    pub fn handleClient(self: *Self, client_fd: posix.socket_t) void {
+    /// Handle a client connection: read length-prefixed JSON messages,
+    /// parse them, enqueue to the write queue, and send responses.
+    pub fn handleClient(self: *Self, client_fd: posix.socket_t, write_queue: *queue.WriteQueue, allocator: mem.Allocator) void {
         _ = self;
         defer posix.close(client_fd);
 
-        var buffer: [4096]u8 = undefined;
+        var read_buffer = protocol.ReadBuffer.init(allocator, 8192) catch return;
+        defer read_buffer.deinit();
 
         while (true) {
-            const bytes_read = posix.read(client_fd, &buffer) catch |err| {
-                // Client disconnected or error
-                if (err == error.WouldBlock) {
-                    // Would block - try again later in a real implementation
-                    continue;
+            const payload = protocol.readMessageFromBuffer(client_fd, &read_buffer) catch |err| {
+                switch (err) {
+                    protocol.ProtocolError.ConnectionClosed => break,
+                    protocol.ProtocolError.WouldBlock => {
+                        std.Thread.sleep(1 * std.time.ns_per_ms);
+                        continue;
+                    },
+                    else => {
+                        protocol.writeResponse(client_fd, protocol.Response.failure("protocol error"), allocator) catch {};
+                        break;
+                    },
                 }
-                break;
             };
 
-            if (bytes_read == 0) {
-                // Client disconnected cleanly
-                break;
-            }
+            // null means we need more data
+            const msg_payload = payload orelse {
+                std.Thread.sleep(1 * std.time.ns_per_ms);
+                continue;
+            };
 
-            // Echo back the received data
-            var bytes_written: usize = 0;
-            while (bytes_written < bytes_read) {
-                const written = posix.write(client_fd, buffer[bytes_written..bytes_read]) catch {
-                    // Write error - client may have disconnected
-                    return;
-                };
-                bytes_written += written;
-            }
+            // Parse the JSON payload into a message (allocates owned strings)
+            const msg = protocol.parseMessage(msg_payload, allocator) catch {
+                protocol.writeResponse(client_fd, protocol.Response.failure("invalid message"), allocator) catch break;
+                continue;
+            };
+
+            // Convert IncomingMessage to QueueItem (zero-copy ownership transfer)
+            const item: queue.QueueItem = switch (msg) {
+                .start => |s| .{ .start = s },
+                .end => |e| .{ .end = e },
+            };
+
+            // Enqueue the item (transfers ownership to queue)
+            write_queue.enqueue(item) catch {
+                // Queue full - free the item's memory and send error
+                var qi = item;
+                write_queue.freeItem(&qi);
+                protocol.writeResponse(client_fd, protocol.Response.failure("queue full"), allocator) catch break;
+                continue;
+            };
+
+            // Send success response (message is already queued even if write fails)
+            protocol.writeResponse(client_fd, protocol.Response.success(), allocator) catch break;
         }
     }
 
     /// Run a single iteration of the server loop.
     /// Accepts one pending connection if available.
     /// Returns true if a connection was handled, false otherwise.
-    pub fn pollOnce(self: *Self) bool {
+    pub fn pollOnce(self: *Self, write_queue: *queue.WriteQueue, allocator: mem.Allocator) bool {
         if (self.acceptConnection()) |client_fd| {
-            self.handleClient(client_fd);
+            self.handleClient(client_fd, write_queue, allocator);
             return true;
         }
         return false;
@@ -242,6 +265,16 @@ fn getSocketPath(allocator: mem.Allocator) ServerError![]u8 {
 // Tests
 // =============================================================================
 
+/// Helper to create a socket pair for testing
+fn createSocketPair() ![2]posix.fd_t {
+    var fds: [2]std.c.fd_t = undefined;
+    const result = std.c.socketpair(std.c.AF.UNIX, std.c.SOCK.STREAM, 0, &fds);
+    if (result != 0) {
+        return error.SocketPairFailed;
+    }
+    return .{ @intCast(fds[0]), @intCast(fds[1]) };
+}
+
 test "Server init and deinit" {
     const allocator = std.testing.allocator;
 
@@ -278,65 +311,47 @@ test "Server start and stop" {
     try std.testing.expect(stat2 == null);
 }
 
-test "Server accepts connection and echoes" {
+test "Server handleClient processes protocol message and enqueues" {
     const allocator = std.testing.allocator;
 
+    var write_queue = try queue.WriteQueue.init(allocator, 10);
+    defer write_queue.deinit();
+
+    // Create a socket pair for testing
+    const pair = try createSocketPair();
+
+    // Send a start message on the client end
+    const start_msg = protocol.StartMessage{
+        .id = "test-uuid-svr",
+        .cmd = "ls -la",
+        .ts = 1234567890,
+        .cwd = "/home/user",
+        .session = "session-svr",
+        .hostname = "localhost",
+    };
+
+    const json = try protocol.serializeStartMessage(start_msg, allocator);
+    defer allocator.free(json);
+
+    _ = try protocol.writeMessage(pair[0], json);
+
+    // Close client end to signal EOF (handleClient will read message, then see disconnect)
+    posix.close(pair[0]);
+
+    // Handle client on the server end
     var server = try Server.init(allocator);
     defer server.deinit();
+    server.handleClient(pair[1], &write_queue, allocator);
+    // pair[1] is closed by handleClient
 
-    try server.start();
-
-    // Create a client socket and connect
-    const client_fd = posix.socket(posix.AF.UNIX, posix.SOCK.STREAM, 0) catch {
-        return error.SkipZigTest;
-    };
-    defer posix.close(client_fd);
-
-    // Set up client address
-    var addr: posix.sockaddr.un = .{
-        .family = posix.AF.UNIX,
-        .path = undefined,
-    };
-    @memset(&addr.path, 0);
-    @memcpy(addr.path[0..server.socket_path.len], server.socket_path);
-
-    // Connect to server
-    posix.connect(client_fd, @ptrCast(&addr), @sizeOf(posix.sockaddr.un)) catch {
-        return error.SkipZigTest;
-    };
-
-    // Send test data
-    const test_data = "Hello, server!";
-    _ = posix.write(client_fd, test_data) catch {
-        return error.SkipZigTest;
-    };
-
-    // Set client to non-blocking for read
-    setNonBlocking(client_fd) catch {
-        return error.SkipZigTest;
-    };
-
-    // Give server time to process (single-threaded, so we need to poll)
-    // Accept and handle the connection
-    if (server.acceptConnection()) |accepted_fd| {
-        // In a real scenario, we'd handle this in a separate thread
-        // For testing, we simulate by reading and echoing directly
-        var buffer: [4096]u8 = undefined;
-        const bytes_read = posix.read(accepted_fd, &buffer) catch 0;
-        if (bytes_read > 0) {
-            _ = posix.write(accepted_fd, buffer[0..bytes_read]) catch {};
-        }
-        posix.close(accepted_fd);
-    }
-
-    // Read echoed data
-    var recv_buffer: [4096]u8 = undefined;
-    const bytes_received = posix.read(client_fd, &recv_buffer) catch 0;
-
-    // Verify we got the echo
-    if (bytes_received > 0) {
-        try std.testing.expectEqualStrings(test_data, recv_buffer[0..bytes_received]);
-    }
+    // Verify the message was enqueued
+    var item = write_queue.dequeue();
+    try std.testing.expect(item != null);
+    try std.testing.expect(item.? == .start);
+    try std.testing.expectEqualStrings("test-uuid-svr", item.?.start.id);
+    try std.testing.expectEqualStrings("ls -la", item.?.start.cmd);
+    try std.testing.expectEqual(@as(i64, 1234567890), item.?.start.ts);
+    write_queue.freeItem(&item.?);
 }
 
 test "Server cleans up stale socket" {
@@ -384,6 +399,9 @@ test "getSocketPath returns valid path" {
 test "Server handles client disconnect gracefully" {
     const allocator = std.testing.allocator;
 
+    var write_queue = try queue.WriteQueue.init(allocator, 10);
+    defer write_queue.deinit();
+
     var server = try Server.init(allocator);
     defer server.deinit();
 
@@ -410,7 +428,46 @@ test "Server handles client disconnect gracefully" {
 
     // Server should handle the disconnected client without crashing
     if (server.acceptConnection()) |accepted_fd| {
-        server.handleClient(accepted_fd);
+        server.handleClient(accepted_fd, &write_queue, allocator);
         // If we get here without crashing, test passes
     }
+}
+
+test "Server handleClient rejects queue-full" {
+    const allocator = std.testing.allocator;
+
+    // Create a queue with capacity 1
+    var write_queue = try queue.WriteQueue.init(allocator, 1);
+    defer write_queue.deinit();
+
+    // Fill the queue with a dummy item
+    const dummy_id = try allocator.dupe(u8, "dummy");
+    try write_queue.enqueue(queue.QueueItem{
+        .end = protocol.EndMessage{ .id = dummy_id, .exit = 0, .duration = 0 },
+    });
+
+    // Create a socket pair
+    const pair = try createSocketPair();
+
+    // Send a start message
+    const start_msg = protocol.StartMessage{
+        .id = "overflow-uuid",
+        .cmd = "echo overflow",
+        .ts = 9999,
+        .cwd = "/tmp",
+        .session = "s",
+        .hostname = "h",
+    };
+    const json = try protocol.serializeStartMessage(start_msg, allocator);
+    defer allocator.free(json);
+    _ = try protocol.writeMessage(pair[0], json);
+    posix.close(pair[0]);
+
+    // Handle client - queue is full, item should be rejected
+    var server = try Server.init(allocator);
+    defer server.deinit();
+    server.handleClient(pair[1], &write_queue, allocator);
+
+    // Queue should still have only the original dummy item
+    try std.testing.expectEqual(@as(usize, 1), write_queue.len());
 }
