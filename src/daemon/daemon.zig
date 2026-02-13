@@ -5,6 +5,8 @@ const server_mod = @import("server.zig");
 const queue_mod = @import("queue.zig");
 const writer_mod = @import("writer.zig");
 const lifecycle = @import("lifecycle.zig");
+const sanitizer_mod = @import("sanitizer.zig");
+const paths = @import("../paths.zig");
 
 const log = std.log.scoped(.daemon);
 
@@ -34,31 +36,45 @@ pub fn daemonMain(allocator: mem.Allocator) !void {
         log.info("Recovered {} fallback items", .{fallback_count});
     }
 
-    // 2. Init WriteQueue (capacity 10,000)
+    // 2. Init Sanitizer (loads config from ~/.config/rig/sanitize.json)
+    const config_dir = paths.getConfigDir(allocator) catch null;
+    const config = if (config_dir) |dir| blk: {
+        defer allocator.free(dir);
+        break :blk sanitizer_mod.loadConfig(allocator, dir);
+    } else sanitizer_mod.SanitizeConfig{};
+    defer sanitizer_mod.freeConfig(allocator, &config);
+
+    var sanitizer = sanitizer_mod.Sanitizer.initWithConfig(allocator, config) catch |err| {
+        log.err("Failed to init sanitizer: {}", .{err});
+        return err;
+    };
+    defer sanitizer.deinit();
+
+    // 3. Init WriteQueue (capacity 10,000)
     var write_queue = try queue_mod.WriteQueue.init(allocator, 10_000);
     defer write_queue.deinit();
 
-    // 3. Init Server and start listening
+    // 4. Init Server and start listening
     var server = try server_mod.Server.init(allocator);
     defer server.deinit();
     try server.start();
 
-    // 4. Write PID file
+    // 5. Write PID file
     lifecycle.writePidFile(allocator) catch |err| {
         log.warn("Failed to write PID file: {}", .{err});
     };
     defer lifecycle.removePidFile(allocator);
 
-    // 5. Register signal handlers
+    // 6. Register signal handlers
     installSignalHandlers();
 
-    // 6. Spawn writer worker thread
-    const worker_thread = std.Thread.spawn(.{}, writerThreadFn, .{ &write_queue, &writer, allocator }) catch |err| {
+    // 7. Spawn writer worker thread
+    const worker_thread = std.Thread.spawn(.{}, writerThreadFn, .{ &write_queue, &writer, &sanitizer, allocator }) catch |err| {
         log.err("Failed to spawn writer thread: {}", .{err});
         return err;
     };
 
-    // 7. Main loop: accept connections + idle timeout
+    // 8. Main loop: accept connections + idle timeout
     var idle_timer = lifecycle.IdleTimer.initDefault();
 
     log.info("Daemon started, listening on {s}", .{server.getPath()});
@@ -80,16 +96,16 @@ pub fn daemonMain(allocator: mem.Allocator) !void {
         }
     }
 
-    // 8. Shutdown: signal worker, join, cleanup
+    // 9. Shutdown: signal worker, join, cleanup
     shutdown_flag.store(true, .release);
     worker_thread.join();
 
     log.info("Daemon stopped", .{});
 }
 
-/// Writer worker thread function. Dequeues batches from the write queue
-/// and processes them through the Writer (SQLite INSERT/UPDATE).
-fn writerThreadFn(write_queue: *queue_mod.WriteQueue, writer: *writer_mod.Writer, allocator: mem.Allocator) void {
+/// Writer worker thread function. Dequeues batches from the write queue,
+/// sanitizes PII, and processes them through the Writer (SQLite INSERT/UPDATE).
+fn writerThreadFn(write_queue: *queue_mod.WriteQueue, writer: *writer_mod.Writer, sanitizer: *const sanitizer_mod.Sanitizer, allocator: mem.Allocator) void {
     while (!shutdown_flag.load(.acquire)) {
         const batch = write_queue.dequeueBatch(100) catch |err| {
             log.err("Failed to dequeue batch: {}", .{err});
@@ -103,6 +119,8 @@ fn writerThreadFn(write_queue: *queue_mod.WriteQueue, writer: *writer_mod.Writer
             continue;
         }
 
+        sanitizer.sanitizeBatch(batch, allocator);
+
         writer.processBatch(batch) catch |err| {
             log.err("Failed to process batch of {} items: {}", .{ batch.len, err });
         };
@@ -115,17 +133,19 @@ fn writerThreadFn(write_queue: *queue_mod.WriteQueue, writer: *writer_mod.Writer
     }
 
     // Drain remaining items on shutdown
-    drainQueue(write_queue, writer, allocator);
+    drainQueue(write_queue, writer, sanitizer, allocator);
 }
 
 /// Drain any remaining items from the queue during shutdown.
-fn drainQueue(write_queue: *queue_mod.WriteQueue, writer: *writer_mod.Writer, allocator: mem.Allocator) void {
+fn drainQueue(write_queue: *queue_mod.WriteQueue, writer: *writer_mod.Writer, sanitizer: *const sanitizer_mod.Sanitizer, allocator: mem.Allocator) void {
     while (true) {
         const batch = write_queue.dequeueBatch(100) catch break;
         if (batch.len == 0) {
             allocator.free(batch);
             break;
         }
+
+        sanitizer.sanitizeBatch(batch, allocator);
 
         writer.processBatch(batch) catch |err| {
             log.err("Failed to process final batch: {}", .{err});
@@ -201,8 +221,12 @@ test "drainQueue processes remaining items" {
     };
     try write_queue.enqueue(item);
 
+    // Init sanitizer for drain test
+    var sanitizer = try sanitizer_mod.Sanitizer.init(allocator);
+    defer sanitizer.deinit();
+
     // Drain should process it
-    drainQueue(&write_queue, &writer, allocator);
+    drainQueue(&write_queue, &writer, &sanitizer, allocator);
 
     // Queue should be empty
     try std.testing.expect(write_queue.isEmpty());

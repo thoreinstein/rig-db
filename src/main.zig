@@ -166,6 +166,7 @@ pub const daemon = struct {
     pub const queue = @import("daemon/queue.zig");
     pub const writer = @import("daemon/writer.zig");
     pub const daemon_main = @import("daemon/daemon.zig");
+    pub const sanitizer = @import("daemon/sanitizer.zig");
 };
 
 // TUI modules

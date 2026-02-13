@@ -20,6 +20,9 @@ const APP_NAME = "rig";
 /// Default XDG data home subdirectory relative to HOME
 const DEFAULT_DATA_SUBDIR = ".local/share";
 
+/// Default XDG config home subdirectory relative to HOME
+const DEFAULT_CONFIG_SUBDIR = ".config";
+
 /// Get the XDG data directory for rig.
 /// Respects $XDG_DATA_HOME when set, otherwise falls back to ~/.local/share/rig.
 /// Creates the directory if it doesn't exist.
@@ -40,6 +43,46 @@ pub fn getDataDir(allocator: mem.Allocator) PathError![]u8 {
     };
 
     return full_path;
+}
+
+/// Get the XDG config directory for rig.
+/// Respects $XDG_CONFIG_HOME when set, otherwise falls back to ~/.config/rig.
+/// Creates the directory if it doesn't exist.
+/// Caller owns the returned memory and must free it with the provided allocator.
+pub fn getConfigDir(allocator: mem.Allocator) PathError![]u8 {
+    const config_home = getConfigHome(allocator) catch |err| return err;
+    defer allocator.free(config_home);
+
+    const full_path = fs.path.join(allocator, &[_][]const u8{ config_home, APP_NAME }) catch {
+        return PathError.OutOfMemory;
+    };
+    errdefer allocator.free(full_path);
+
+    ensureDir(full_path) catch |err| {
+        return err;
+    };
+
+    return full_path;
+}
+
+/// Get the XDG config home directory.
+/// Respects $XDG_CONFIG_HOME when set, otherwise falls back to ~/.config.
+fn getConfigHome(allocator: mem.Allocator) PathError![]u8 {
+    if (posix.getenv("XDG_CONFIG_HOME")) |xdg_config_home| {
+        if (xdg_config_home.len > 0) {
+            return allocator.dupe(u8, xdg_config_home) catch {
+                return PathError.OutOfMemory;
+            };
+        }
+    }
+
+    const home = posix.getenv("HOME") orelse {
+        return PathError.HomeNotFound;
+    };
+
+    return fs.path.join(allocator, &[_][]const u8{ home, DEFAULT_CONFIG_SUBDIR }) catch {
+        return PathError.OutOfMemory;
+    };
 }
 
 /// Get the XDG data home directory.
@@ -213,6 +256,37 @@ test "ensureDir creates nested directories" {
 
     // Clean up
     fs.cwd().deleteTree("/tmp/rig-test-nested") catch {};
+}
+
+test "getConfigDir creates directory" {
+    const allocator = std.testing.allocator;
+
+    const config_dir = getConfigDir(allocator) catch |err| {
+        if (err == PathError.HomeNotFound) return;
+        return err;
+    };
+    defer allocator.free(config_dir);
+
+    try std.testing.expect(config_dir.len > 0);
+    try std.testing.expect(mem.endsWith(u8, config_dir, "/rig"));
+
+    var dir = fs.cwd().openDir(config_dir, .{}) catch |err| {
+        std.debug.print("Failed to open config dir: {}\n", .{err});
+        return err;
+    };
+    dir.close();
+}
+
+test "getConfigHome returns non-empty path" {
+    const allocator = std.testing.allocator;
+
+    const config_home = getConfigHome(allocator) catch |err| {
+        if (err == PathError.HomeNotFound) return;
+        return err;
+    };
+    defer allocator.free(config_home);
+
+    try std.testing.expect(config_home.len > 0);
 }
 
 test "getDataHome returns non-empty path" {
