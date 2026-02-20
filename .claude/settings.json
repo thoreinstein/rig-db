@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file_path=$(jq -r '.tool_input.file_path // empty'); if echo \"$file_path\" | grep -q '/deps/'; then echo 'BLOCK: deps/ contains vendored C source — do not modify' >&2; exit 2; fi"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file_path=$(jq -r '.tool_input.file_path // empty'); if [ -n \"$file_path\" ] && echo \"$file_path\" | grep -q '\\.zig$'; then zig fmt \"$file_path\" 2>/dev/null; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
