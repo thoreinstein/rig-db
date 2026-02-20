@@ -40,10 +40,10 @@ pub fn main() !void {
 
 fn printUsage(writer: *std.Io.Writer) !void {
     _ = try writer.write(
-        \\rig-db - A database CLI tool
+        \\rigdb - Local shell history
         \\
         \\Usage:
-        \\  rig-db <command> [options]
+        \\  rigdb <command> [options]
         \\
         \\Commands:
         \\  init <shell>           Generate shell integration script (zsh, bash)
@@ -53,16 +53,16 @@ fn printUsage(writer: *std.Io.Writer) !void {
         \\  version, --version, -v Show version information
         \\
         \\Examples:
-        \\  rig-db help
-        \\  rig-db version
-        \\  rig-db init zsh
-        \\  rig-db history start -- "ls -la"
+        \\  rigdb help
+        \\  rigdb version
+        \\  rigdb init zsh
+        \\  rigdb history start -- "ls -la"
         \\
     );
 }
 
 fn printVersion(writer: *std.Io.Writer) !void {
-    _ = try writer.write("rig-db version 0.1.0\n");
+    _ = try writer.write("rigdb version 0.1.0\n");
 }
 
 /// Handle history subcommands
@@ -79,7 +79,7 @@ fn runHistoryCommand(allocator: std.mem.Allocator, args: []const []const u8, wri
         commands.start.run(allocator, args) catch |err| {
             switch (err) {
                 commands.start.StartError.MissingCommand => {
-                    _ = try writer.write("Error: Missing command after 'rig history start --'\n");
+                    _ = try writer.write("Error: Missing command after 'rigdb history start --'\n");
                     try printHistoryUsage(writer);
                     std.process.exit(1);
                 },
@@ -132,10 +132,10 @@ fn runInitCommand(args: []const []const u8, writer: *std.Io.Writer) !void {
 
 fn printHistoryUsage(writer: *std.Io.Writer) !void {
     _ = try writer.write(
-        \\rig-db history - Shell history tracking
+        \\rigdb history - Shell history tracking
         \\
         \\Usage:
-        \\  rig-db history <subcommand> [options]
+        \\  rigdb history <subcommand> [options]
         \\
         \\Subcommands:
         \\  start -- <command>          Record start of a shell command (pre-exec hook)
@@ -143,11 +143,11 @@ fn printHistoryUsage(writer: *std.Io.Writer) !void {
         \\  help                        Show this help message
         \\
         \\Examples:
-        \\  rig-db history start -- "ls -la"
-        \\  rig-db history end --id 01234567-89ab-cdef-0123-456789abcdef --exit 0
+        \\  rigdb history start -- "ls -la"
+        \\  rigdb history end --id 01234567-89ab-cdef-0123-456789abcdef --exit 0
         \\
         \\The start command outputs a UUID that should be captured and passed
-        \\to 'rig history end' when the command completes.
+        \\to 'rigdb history end' when the command completes.
         \\
     );
 }

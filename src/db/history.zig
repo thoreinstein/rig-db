@@ -15,6 +15,7 @@ pub const HistoryError = error{
     PrepareStatementFailed,
     BindFailed,
     ConstraintViolation,
+    DatabaseBusy,
 };
 
 /// A history record representing a single command execution
@@ -109,6 +110,9 @@ pub fn insertStart(db: *sqlite.Database, params: InsertParams) (HistoryError || 
     if (result == c.SQLITE_CONSTRAINT) {
         return HistoryError.ConstraintViolation;
     }
+    if (result == c.SQLITE_BUSY or result == c.SQLITE_LOCKED) {
+        return HistoryError.DatabaseBusy;
+    }
     if (result != c.SQLITE_DONE) {
         return HistoryError.InsertFailed;
     }
@@ -139,6 +143,9 @@ pub fn updateEnd(db: *sqlite.Database, params: UpdateParams) (HistoryError || sq
     }
 
     result = c.sqlite3_step(stmt);
+    if (result == c.SQLITE_BUSY or result == c.SQLITE_LOCKED) {
+        return HistoryError.DatabaseBusy;
+    }
     if (result != c.SQLITE_DONE) {
         return HistoryError.UpdateFailed;
     }

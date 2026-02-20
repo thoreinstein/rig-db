@@ -55,8 +55,8 @@ pub fn getFallbackPath(allocator: mem.Allocator) FallbackError![]u8 {
 }
 
 /// Write a message to the fallback log.
-/// Uses atomic append to ensure no data loss on crash during write.
-/// Uses file locking to prevent corruption from concurrent CLI invocations.
+/// Uses seekFromEnd + fsync for durability. Concurrent CLI writes are unlikely
+/// in practice (one write per command) but are not serialized.
 pub fn writeToFallback(allocator: mem.Allocator, item: FallbackItem) FallbackError!void {
     const fallback_path = try getFallbackPath(allocator);
     defer allocator.free(fallback_path);

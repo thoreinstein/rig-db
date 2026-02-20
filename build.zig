@@ -52,7 +52,7 @@ pub fn build(b: *std.Build) void {
     };
 
     const exe = b.addExecutable(.{
-        .name = "rig-db",
+        .name = "rigdb",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,

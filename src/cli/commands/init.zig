@@ -9,7 +9,7 @@ pub const InitError = error{
     WriteFailed,
 };
 
-/// Run the 'rig init <shell>' command.
+/// Run the 'rigdb init <shell>' command.
 /// Outputs shell initialization script to stdout.
 ///
 /// Supported shells: zsh, bash
@@ -34,10 +34,10 @@ pub fn run(args: []const []const u8, writer: anytype) !void {
 
 fn printUsage(writer: anytype) !void {
     _ = try writer.write(
-        \\rig init - Generate shell integration script
+        \\rigdb init - Generate shell integration script
         \\
         \\Usage:
-        \\  rig init <shell>
+        \\  rigdb init <shell>
         \\
         \\Supported shells:
         \\  zsh     Generate Zsh integration (add to ~/.zshrc)
@@ -45,10 +45,10 @@ fn printUsage(writer: anytype) !void {
         \\
         \\Examples:
         \\  # Add to ~/.zshrc:
-        \\  eval "$(rig init zsh)"
+        \\  eval "$(rigdb init zsh)"
         \\
         \\  # Add to ~/.bashrc:
-        \\  eval "$(rig init bash)"
+        \\  eval "$(rigdb init bash)"
         \\
     );
 }
@@ -57,8 +57,8 @@ fn printUsage(writer: anytype) !void {
 /// Uses preexec/precmd hooks for command tracking.
 fn outputZshScript(writer: anytype) !void {
     _ = try writer.write(
-        \\# rig shell integration for Zsh
-        \\# Add to ~/.zshrc: eval "$(rig init zsh)"
+        \\# rigdb shell integration for Zsh
+        \\# Add to ~/.zshrc: eval "$(rigdb init zsh)"
         \\
         \\# Initialize session UUID (persists for shell lifetime)
         \\if [[ -z "${RIG_SESSION}" ]]; then
@@ -81,11 +81,11 @@ fn outputZshScript(writer: anytype) !void {
         \\    # Skip empty commands
         \\    [[ -z "${cmd// }" ]] && return
         \\
-        \\    # Skip rig's own commands to avoid recursion
-        \\    [[ "$cmd" == rig\ * ]] && return
+        \\    # Skip rigdb's own commands to avoid recursion
+        \\    [[ "$cmd" == rigdb\ * ]] && return
         \\
         \\    # Record command start, capture UUID
-        \\    _rig_cmd_id="$(rig history start -- "$cmd" 2>/dev/null)"
+        \\    _rig_cmd_id="$(rigdb history start -- "$cmd" 2>/dev/null)"
         \\}
         \\
         \\# Pre-prompt hook: called before each prompt is displayed
@@ -97,7 +97,7 @@ fn outputZshScript(writer: anytype) !void {
         \\
         \\    # If we have a command ID, record its completion
         \\    if [[ -n "$_rig_cmd_id" ]]; then
-        \\        rig history end --id "$_rig_cmd_id" --exit "$exit_code" 2>/dev/null &!
+        \\        rigdb history end --id "$_rig_cmd_id" --exit "$exit_code" 2>/dev/null &!
         \\        _rig_cmd_id=""
         \\    fi
         \\}
@@ -107,7 +107,7 @@ fn outputZshScript(writer: anytype) !void {
         \\add-zsh-hook preexec _rig_preexec
         \\add-zsh-hook precmd _rig_precmd
         \\
-        \\# TODO: Ctrl+R keybinding for rig search (when TUI is ready)
+        \\# TODO: Ctrl+R keybinding for rigdb search (when TUI is ready)
         \\# bindkey '^R' _rig_search
         \\
     );
@@ -117,8 +117,8 @@ fn outputZshScript(writer: anytype) !void {
 /// Uses DEBUG trap for pre-exec and PROMPT_COMMAND for post-exec.
 fn outputBashScript(writer: anytype) !void {
     _ = try writer.write(
-        \\# rig shell integration for Bash
-        \\# Add to ~/.bashrc: eval "$(rig init bash)"
+        \\# rigdb shell integration for Bash
+        \\# Add to ~/.bashrc: eval "$(rigdb init bash)"
         \\
         \\# Initialize session UUID (persists for shell lifetime)
         \\if [[ -z "${RIG_SESSION}" ]]; then
@@ -150,15 +150,15 @@ fn outputBashScript(writer: anytype) !void {
         \\    # Skip empty commands
         \\    [[ -z "${cmd// }" ]] && return
         \\
-        \\    # Skip rig's own commands and PROMPT_COMMAND to avoid recursion
-        \\    [[ "$cmd" == rig\ * ]] && return
+        \\    # Skip rigdb's own commands and PROMPT_COMMAND to avoid recursion
+        \\    [[ "$cmd" == rigdb\ * ]] && return
         \\    [[ "$BASH_COMMAND" == _rig_* ]] && return
         \\    [[ "$BASH_COMMAND" == "__rig_"* ]] && return
         \\
         \\    _rig_preexec_done=1
         \\
         \\    # Record command start, capture UUID
-        \\    _rig_cmd_id="$(rig history start -- "$cmd" 2>/dev/null)"
+        \\    _rig_cmd_id="$(rigdb history start -- "$cmd" 2>/dev/null)"
         \\}
         \\
         \\# Post-execution hook via PROMPT_COMMAND
@@ -171,7 +171,7 @@ fn outputBashScript(writer: anytype) !void {
         \\    # If we have a command ID, record its completion
         \\    if [[ -n "$_rig_cmd_id" ]]; then
         \\        # Run in background to avoid blocking prompt
-        \\        (rig history end --id "$_rig_cmd_id" --exit "$exit_code" 2>/dev/null &)
+        \\        (rigdb history end --id "$_rig_cmd_id" --exit "$exit_code" 2>/dev/null &)
         \\        _rig_cmd_id=""
         \\    fi
         \\
@@ -200,7 +200,7 @@ fn outputBashScript(writer: anytype) !void {
         \\    PROMPT_COMMAND="_rig_precmd; $PROMPT_COMMAND"
         \\fi
         \\
-        \\# TODO: Ctrl+R keybinding for rig search (when TUI is ready)
+        \\# TODO: Ctrl+R keybinding for rigdb search (when TUI is ready)
         \\# bind -x '"\C-r": _rig_search'
         \\
     );
@@ -222,8 +222,8 @@ test "run outputs zsh script" {
     try std.testing.expect(mem.indexOf(u8, output, "preexec") != null);
     try std.testing.expect(mem.indexOf(u8, output, "precmd") != null);
     try std.testing.expect(mem.indexOf(u8, output, "RIG_SESSION") != null);
-    try std.testing.expect(mem.indexOf(u8, output, "rig history start") != null);
-    try std.testing.expect(mem.indexOf(u8, output, "rig history end") != null);
+    try std.testing.expect(mem.indexOf(u8, output, "rigdb history start") != null);
+    try std.testing.expect(mem.indexOf(u8, output, "rigdb history end") != null);
 }
 
 test "run outputs bash script" {
@@ -238,8 +238,8 @@ test "run outputs bash script" {
     try std.testing.expect(mem.indexOf(u8, output, "DEBUG") != null);
     try std.testing.expect(mem.indexOf(u8, output, "PROMPT_COMMAND") != null);
     try std.testing.expect(mem.indexOf(u8, output, "RIG_SESSION") != null);
-    try std.testing.expect(mem.indexOf(u8, output, "rig history start") != null);
-    try std.testing.expect(mem.indexOf(u8, output, "rig history end") != null);
+    try std.testing.expect(mem.indexOf(u8, output, "rigdb history start") != null);
+    try std.testing.expect(mem.indexOf(u8, output, "rigdb history end") != null);
 }
 
 test "run shows usage for help" {

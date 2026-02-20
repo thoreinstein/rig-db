@@ -256,12 +256,11 @@ pub const Writer = struct {
     }
 
     /// Check if an error is a busy/locked error that should trigger a retry.
+    /// Only transaction-level errors and explicit DatabaseBusy indicate SQLITE_BUSY.
     fn isBusyError(_: *Self, err: anyerror) bool {
-        return err == sqlite.SqliteError.ExecFailed or
-            err == history.HistoryError.InsertFailed or
-            err == history.HistoryError.UpdateFailed or
-            err == WriterError.TransactionFailed or
-            err == WriterError.CommitFailed;
+        return err == WriterError.TransactionFailed or
+            err == WriterError.CommitFailed or
+            err == history.HistoryError.DatabaseBusy;
     }
 
     /// Process any pending items from the fallback log.
