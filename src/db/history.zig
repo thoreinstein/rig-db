@@ -280,10 +280,17 @@ pub fn query(
             return HistoryError.BindFailed;
         }
         bind_index += 1;
-        // Bind 2: LIKE pattern for subdirectories — escape SQL wildcards in the path, then append /%
-        var like_buf: [std.fs.max_path_bytes + 4]u8 = undefined;
+        // Bind 2: LIKE pattern for subdirectories — escape SQL wildcards, then append /%
+        // Buffer sized for worst case: every char escaped (doubled) + "/%"
+        var like_buf: [std.fs.max_path_bytes * 2 + 2]u8 = undefined;
         var like_len: usize = 0;
-        for (prefix[0..prefix.len]) |ch| {
+        // Strip trailing slashes so "/" becomes empty → pattern "/%", and
+        // "/home/user/proj/" doesn't produce "/home/user/proj//%"
+        var effective_len = prefix.len;
+        while (effective_len > 0 and prefix[effective_len - 1] == '/') {
+            effective_len -= 1;
+        }
+        for (prefix[0..effective_len]) |ch| {
             if (ch == '%' or ch == '_' or ch == '\\') {
                 like_buf[like_len] = '\\';
                 like_len += 1;
@@ -539,6 +546,28 @@ test "query filters by cwd prefix matches dir and subdirs only" {
     }
 
     try std.testing.expectEqual(@as(usize, 2), results.items.len);
+}
+
+test "query cwd prefix handles root directory and trailing slashes" {
+    const allocator = std.testing.allocator;
+    var db = try sqlite.initMemoryDb();
+    defer db.close();
+
+    const schema = @import("schema.zig");
+    try schema.initSchema(&db);
+
+    try insertStart(&db, .{ .id = "id-r1", .timestamp = 1000, .command = "ls", .cwd = "/", .session = "s1", .hostname = "h1" });
+    try insertStart(&db, .{ .id = "id-r2", .timestamp = 2000, .command = "pwd", .cwd = "/home", .session = "s1", .hostname = "h1" });
+    try insertStart(&db, .{ .id = "id-r3", .timestamp = 3000, .command = "whoami", .cwd = "/home/user", .session = "s1", .hostname = "h1" });
+
+    // Root directory "/" should match itself and all subdirectories
+    var results = try query(&db, allocator, .{ .cwd_prefix = "/", .limit = 10 });
+    defer {
+        for (results.items) |*r| r.deinit(allocator);
+        results.deinit(allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 3), results.items.len);
 }
 
 test "insertStart rejects duplicate id" {
