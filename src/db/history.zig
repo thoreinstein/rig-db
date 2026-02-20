@@ -291,6 +291,8 @@ pub fn query(
             effective_len -= 1;
         }
         for (prefix[0..effective_len]) |ch| {
+            // Each char needs at most 2 bytes (escape + char); ensure room for that plus final "/%"
+            if (like_len + 4 > like_buf.len) return HistoryError.BindFailed;
             if (ch == '%' or ch == '_' or ch == '\\') {
                 like_buf[like_len] = '\\';
                 like_len += 1;
@@ -298,6 +300,7 @@ pub fn query(
             like_buf[like_len] = ch;
             like_len += 1;
         }
+        if (like_len + 2 > like_buf.len) return HistoryError.BindFailed;
         like_buf[like_len] = '/';
         like_buf[like_len + 1] = '%';
         like_len += 2;
