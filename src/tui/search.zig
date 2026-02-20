@@ -96,8 +96,8 @@ pub fn search(
     if (options.current_dir_only) {
         if (options.current_dir) |dir| {
             if (options.current_dir_prefix) {
-                // Prefix match: dir% (includes subdirectories)
-                const prefix_z = std.fmt.bufPrintZ(&cwd_prefix_buf, "{s}%", .{dir}) catch {
+                // Subdirectory match: DB layer handles exact + LIKE dir/% with escaping
+                const prefix_z = std.fmt.bufPrintZ(&cwd_prefix_buf, "{s}", .{dir}) catch {
                     return SearchError.OutOfMemory;
                 };
                 cwd_prefix_filter = cwd_prefix_buf[0..prefix_z.len :0];

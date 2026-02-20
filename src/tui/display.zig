@@ -274,7 +274,8 @@ pub const Display = struct {
         try self.renderStatusBar(state, size.cols);
 
         // Position cursor at end of query (after "[mode] > ")
-        const mode_prefix_len: u16 = @intCast(state.filter_mode.label().len + 4 + 2); // [label] + space + "> "
+        // Visible chars: [ + label + ] + space + > + space = label.len + 5
+        const mode_prefix_len: u16 = @intCast(state.filter_mode.label().len + 3 + 2); // [label] + space + "> "
         try self.moveCursor(1, @intCast(state.query.len + mode_prefix_len + 1));
         try self.showCursor();
     }
@@ -288,8 +289,8 @@ pub const Display = struct {
         try self.write("]" ++ RESET ++ " ");
         try self.write(FG_GREEN ++ BOLD ++ "> " ++ RESET);
 
-        // Account for mode label + brackets + spaces + "> " + cursor
-        const mode_label_len: u16 = @intCast(filter_mode.label().len + 4); // [label] + space
+        // Account for mode label + brackets + space + "> " + cursor
+        const mode_label_len: u16 = @intCast(filter_mode.label().len + 3); // [label] + space
         const prefix_len = mode_label_len + 2; // + "> "
         const max_query_len = if (width > prefix_len + 2) width - prefix_len - 2 else 1;
         if (query.len > max_query_len) {

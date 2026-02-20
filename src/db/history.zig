@@ -219,7 +219,7 @@ pub fn query(
         try where_clauses.append(allocator, "cwd = ?");
     }
     if (params.cwd_prefix != null) {
-        try where_clauses.append(allocator, "cwd LIKE ?");
+        try where_clauses.append(allocator, "(cwd = ? OR cwd LIKE ? ESCAPE '\\')");
     }
     if (params.session != null) {
         try where_clauses.append(allocator, "session = ?");
@@ -275,7 +275,26 @@ pub fn query(
         bind_index += 1;
     }
     if (params.cwd_prefix) |prefix| {
+        // Bind 1: exact match for the directory itself
         if (c.sqlite3_bind_text(stmt, bind_index, prefix.ptr, @intCast(prefix.len), c.SQLITE_STATIC) != c.SQLITE_OK) {
+            return HistoryError.BindFailed;
+        }
+        bind_index += 1;
+        // Bind 2: LIKE pattern for subdirectories — escape SQL wildcards in the path, then append /%
+        var like_buf: [std.fs.max_path_bytes + 4]u8 = undefined;
+        var like_len: usize = 0;
+        for (prefix[0..prefix.len]) |ch| {
+            if (ch == '%' or ch == '_' or ch == '\\') {
+                like_buf[like_len] = '\\';
+                like_len += 1;
+            }
+            like_buf[like_len] = ch;
+            like_len += 1;
+        }
+        like_buf[like_len] = '/';
+        like_buf[like_len + 1] = '%';
+        like_len += 2;
+        if (c.sqlite3_bind_text(stmt, bind_index, &like_buf, @intCast(like_len), c.SQLITE_STATIC) != c.SQLITE_OK) {
             return HistoryError.BindFailed;
         }
         bind_index += 1;
@@ -498,7 +517,7 @@ test "query returns results sorted by timestamp desc" {
     try std.testing.expectEqualStrings("first", results.items[2].command);
 }
 
-test "query filters by cwd prefix" {
+test "query filters by cwd prefix matches dir and subdirs only" {
     const allocator = std.testing.allocator;
     var db = try sqlite.initMemoryDb();
     defer db.close();
@@ -506,13 +525,14 @@ test "query filters by cwd prefix" {
     const schema = @import("schema.zig");
     try schema.initSchema(&db);
 
-    // Insert commands in different directories
+    // Insert commands in various directories
     try insertStart(&db, .{ .id = "id-p1", .timestamp = 1000, .command = "make build", .cwd = "/home/user/proj", .session = "s1", .hostname = "h1" });
     try insertStart(&db, .{ .id = "id-p2", .timestamp = 2000, .command = "make test", .cwd = "/home/user/proj/src", .session = "s1", .hostname = "h1" });
     try insertStart(&db, .{ .id = "id-p3", .timestamp = 3000, .command = "ls", .cwd = "/home/user/other", .session = "s1", .hostname = "h1" });
+    try insertStart(&db, .{ .id = "id-p4", .timestamp = 4000, .command = "cargo build", .cwd = "/home/user/project", .session = "s1", .hostname = "h1" });
 
-    // Query with cwd prefix should match /home/user/proj and /home/user/proj/src
-    var results = try query(&db, allocator, .{ .cwd_prefix = "/home/user/proj%", .limit = 10 });
+    // cwd_prefix takes the raw dir — matches exact dir + real subdirectories, NOT /home/user/project
+    var results = try query(&db, allocator, .{ .cwd_prefix = "/home/user/proj", .limit = 10 });
     defer {
         for (results.items) |*r| r.deinit(allocator);
         results.deinit(allocator);
