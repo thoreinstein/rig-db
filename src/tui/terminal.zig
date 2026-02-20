@@ -109,7 +109,7 @@ pub const Terminal = struct {
         global_instance = self;
 
         // Register SIGWINCH handler for window resize
-        try self.registerSignalHandler();
+        self.registerSignalHandler();
 
         // Get initial terminal size
         self.updateSize();
@@ -128,19 +128,19 @@ pub const Terminal = struct {
     }
 
     /// Register signal handlers for cleanup and resize.
-    fn registerSignalHandler(self: *Self) !void {
+    fn registerSignalHandler(self: *Self) void {
         _ = self;
         // Register SIGWINCH handler
         const sigwinch_action = posix.Sigaction{
             .handler = .{ .handler = handleSigwinch },
-            .mask = posix.empty_sigset,
+            .mask = posix.sigemptyset(),
             .flags = 0,
         };
-        try posix.sigaction(posix.SIG.WINCH, &sigwinch_action, null);
+        posix.sigaction(posix.SIG.WINCH, &sigwinch_action, null);
     }
 
     /// Signal handler for SIGWINCH (window resize).
-    fn handleSigwinch(_: c_int) callconv(.C) void {
+    fn handleSigwinch(_: c_int) callconv(.c) void {
         if (global_instance) |instance| {
             instance.updateSize();
             if (instance.resize_callback) |callback| {

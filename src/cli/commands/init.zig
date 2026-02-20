@@ -107,8 +107,18 @@ fn outputZshScript(writer: anytype) !void {
         \\add-zsh-hook preexec _rig_preexec
         \\add-zsh-hook precmd _rig_precmd
         \\
-        \\# TODO: Ctrl+R keybinding for rigdb search (when TUI is ready)
-        \\# bindkey '^R' _rig_search
+        \\# Interactive history search (Ctrl+R)
+        \\_rig_search() {
+        \\    local selected
+        \\    selected="$(rigdb search)"
+        \\    if [[ -n "$selected" ]]; then
+        \\        BUFFER="$selected"
+        \\        CURSOR=${#BUFFER}
+        \\    fi
+        \\    zle reset-prompt
+        \\}
+        \\zle -N _rig_search
+        \\bindkey '^R' _rig_search
         \\
     );
 }
@@ -200,8 +210,16 @@ fn outputBashScript(writer: anytype) !void {
         \\    PROMPT_COMMAND="_rig_precmd; $PROMPT_COMMAND"
         \\fi
         \\
-        \\# TODO: Ctrl+R keybinding for rigdb search (when TUI is ready)
-        \\# bind -x '"\C-r": _rig_search'
+        \\# Interactive history search (Ctrl+R)
+        \\_rig_search() {
+        \\    local selected
+        \\    selected="$(rigdb search)"
+        \\    if [[ -n "$selected" ]]; then
+        \\        READLINE_LINE="$selected"
+        \\        READLINE_POINT=${#READLINE_LINE}
+        \\    fi
+        \\}
+        \\bind -x '"\C-r": _rig_search'
         \\
     );
 }

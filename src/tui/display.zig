@@ -151,6 +151,8 @@ pub const SearchState = struct {
 /// Display renderer for the TUI search interface.
 pub const Display = struct {
     terminal: *Terminal,
+    /// Output file for TUI rendering (defaults to stdout, use stderr for piped usage)
+    output: std.fs.File,
     /// Buffer for building output strings
     output_buffer: [4096]u8 = undefined,
 
@@ -182,18 +184,25 @@ pub const Display = struct {
     const FG_WHITE = CSI ++ "37m";
     const FG_BRIGHT_BLACK = CSI ++ "90m"; // Gray
 
-    /// Initialize the display with a terminal reference.
+    /// Initialize the display with a terminal reference. Renders to stdout.
     pub fn init(term: *Terminal) Self {
         return Self{
             .terminal = term,
+            .output = std.fs.File.stdout(),
         };
     }
 
-    /// Write directly to stdout.
+    /// Initialize the display with a custom output file (e.g. stderr for piped usage).
+    pub fn initWithOutput(term: *Terminal, output: std.fs.File) Self {
+        return Self{
+            .terminal = term,
+            .output = output,
+        };
+    }
+
+    /// Write directly to the output file.
     fn write(self: *Self, data: []const u8) !void {
-        _ = self;
-        const stdout = std.io.getStdOut();
-        try stdout.writeAll(data);
+        try self.output.writeAll(data);
     }
 
     /// Format and write using the internal buffer.

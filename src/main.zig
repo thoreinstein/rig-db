@@ -28,6 +28,8 @@ pub fn main() !void {
         try runHistoryCommand(allocator, args[2..], &stdout.interface);
     } else if (std.mem.eql(u8, command, "init")) {
         try runInitCommand(args[2..], &stdout.interface);
+    } else if (std.mem.eql(u8, command, "search")) {
+        try runSearchCommand(allocator);
     } else if (std.mem.eql(u8, command, "daemon")) {
         const daemon_mod = @import("daemon/daemon.zig");
         try daemon_mod.daemonMain(allocator);
@@ -48,6 +50,7 @@ fn printUsage(writer: *std.Io.Writer) !void {
         \\Commands:
         \\  init <shell>           Generate shell integration script (zsh, bash)
         \\  history <subcommand>   Shell history tracking
+        \\  search                 Interactive history search (Ctrl+R)
         \\  daemon                 Run the background daemon (internal use)
         \\  help, --help, -h       Show this help message
         \\  version, --version, -v Show version information
@@ -102,6 +105,11 @@ fn runHistoryCommand(allocator: std.mem.Allocator, args: []const []const u8, wri
         commands.end.run(allocator, args[1..]) catch {
             // Silent failure for end command (fire-and-forget semantics)
         };
+    } else if (std.mem.eql(u8, subcommand, "list")) {
+        commands.list.run(allocator, args[1..], writer) catch {
+            _ = try writer.write("Error: Failed to list history\n");
+            std.process.exit(1);
+        };
     } else if (std.mem.eql(u8, subcommand, "help") or std.mem.eql(u8, subcommand, "--help") or std.mem.eql(u8, subcommand, "-h")) {
         try printHistoryUsage(writer);
     } else {
@@ -130,6 +138,18 @@ fn runInitCommand(args: []const []const u8, writer: *std.Io.Writer) !void {
     };
 }
 
+/// Handle the search command (interactive TUI)
+fn runSearchCommand(allocator: std.mem.Allocator) !void {
+    const app = @import("tui/app.zig");
+    const selected = try app.run(allocator);
+    if (selected) |cmd| {
+        defer allocator.free(cmd);
+        const stdout = std.fs.File.stdout();
+        stdout.writeAll(cmd) catch {};
+        stdout.writeAll("\n") catch {};
+    }
+}
+
 fn printHistoryUsage(writer: *std.Io.Writer) !void {
     _ = try writer.write(
         \\rigdb history - Shell history tracking
@@ -140,11 +160,13 @@ fn printHistoryUsage(writer: *std.Io.Writer) !void {
         \\Subcommands:
         \\  start -- <command>          Record start of a shell command (pre-exec hook)
         \\  end --id <uuid> --exit <n>  Record end of a shell command (post-exec hook)
+        \\  list [--limit N] [-p PAT]   List recent history entries
         \\  help                        Show this help message
         \\
         \\Examples:
         \\  rigdb history start -- "ls -la"
         \\  rigdb history end --id 01234567-89ab-cdef-0123-456789abcdef --exit 0
+        \\  rigdb history list -n 50
         \\
         \\The start command outputs a UUID that should be captured and passed
         \\to 'rigdb history end' when the command completes.
@@ -174,6 +196,7 @@ pub const terminal = @import("tui/terminal.zig");
 pub const tui_reader = @import("tui/reader.zig");
 pub const tui_search = @import("tui/search.zig");
 pub const tui_display = @import("tui/display.zig");
+pub const tui_app = @import("tui/app.zig");
 
 // CLI modules
 pub const cli = struct {
@@ -187,6 +210,7 @@ pub const commands = struct {
     pub const start = @import("cli/commands/start.zig");
     pub const end = @import("cli/commands/end.zig");
     pub const init = @import("cli/commands/init.zig");
+    pub const list = @import("cli/commands/list.zig");
 };
 
 test "basic functionality" {
