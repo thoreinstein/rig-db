@@ -52,9 +52,20 @@ pub fn run(allocator: mem.Allocator, args: []const []const u8, writer: anytype) 
         cwd_filter = formatted;
     }
 
+    var session_buf: [256]u8 = undefined;
+    var session_filter: ?[:0]const u8 = null;
+    if (opts.session) |s| {
+        const formatted = std.fmt.bufPrintZ(&session_buf, "{s}", .{s}) catch {
+            _ = try writer.write("Error: Session name too long\n");
+            return;
+        };
+        session_filter = formatted;
+    }
+
     var results = reader.query(.{
         .command_pattern = pattern,
         .cwd = cwd_filter,
+        .session = session_filter,
         .limit = opts.limit,
         .include_deleted = false,
     }) catch {
@@ -81,6 +92,7 @@ const ListOptions = struct {
     limit: u32 = 25,
     pattern: ?[]const u8 = null,
     cwd: ?[]const u8 = null,
+    session: ?[]const u8 = null,
 };
 
 fn parseArgs(args: []const []const u8) ListError!ListOptions {
@@ -102,6 +114,11 @@ fn parseArgs(args: []const []const u8) ListError!ListOptions {
             if (i + 1 < args.len) {
                 i += 1;
                 opts.pattern = args[i];
+            }
+        } else if (mem.eql(u8, arg, "--session") or mem.eql(u8, arg, "-s")) {
+            if (i + 1 < args.len) {
+                i += 1;
+                opts.session = args[i];
             }
         }
     }
@@ -156,10 +173,30 @@ test "parseArgs zero limit" {
     try std.testing.expectError(ListError.InvalidLimit, result);
 }
 
+test "parseArgs session flag" {
+    const args = [_][]const u8{ "--session", "PROJ-1234" };
+    const opts = try parseArgs(&args);
+    try std.testing.expectEqualStrings("PROJ-1234", opts.session.?);
+}
+
+test "parseArgs short session flag" {
+    const args = [_][]const u8{ "-s", "my-tmux-session" };
+    const opts = try parseArgs(&args);
+    try std.testing.expectEqualStrings("my-tmux-session", opts.session.?);
+}
+
 test "parseArgs combined flags" {
     const args = [_][]const u8{ "-n", "20", "--pattern", "docker", "--cwd", "/tmp" };
     const opts = try parseArgs(&args);
     try std.testing.expectEqual(@as(u32, 20), opts.limit);
     try std.testing.expectEqualStrings("docker", opts.pattern.?);
     try std.testing.expectEqualStrings("/tmp", opts.cwd.?);
+}
+
+test "parseArgs combined flags with session" {
+    const args = [_][]const u8{ "-n", "10", "-p", "git", "-s", "PROJ-1234" };
+    const opts = try parseArgs(&args);
+    try std.testing.expectEqual(@as(u32, 10), opts.limit);
+    try std.testing.expectEqualStrings("git", opts.pattern.?);
+    try std.testing.expectEqualStrings("PROJ-1234", opts.session.?);
 }

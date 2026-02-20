@@ -1,6 +1,7 @@
 const std = @import("std");
 const terminal_mod = @import("terminal.zig");
 const history = @import("../db/history.zig");
+const search_mod = @import("search.zig");
 
 const Terminal = terminal_mod.Terminal;
 const Key = terminal_mod.Key;
@@ -25,6 +26,8 @@ pub const SearchState = struct {
     scroll_offset: usize,
     /// Number of visible rows for results (calculated from terminal height)
     visible_rows: usize,
+    /// Current filter mode (global/directory/session)
+    filter_mode: search_mod.FilterMode,
     /// Whether the search was cancelled
     cancelled: bool,
 
@@ -38,6 +41,7 @@ pub const SearchState = struct {
             .selected_index = 0,
             .scroll_offset = 0,
             .visible_rows = 10, // Default, will be updated based on terminal size
+            .filter_mode = .global,
             .cancelled = false,
         };
     }
@@ -146,6 +150,11 @@ pub const SearchState = struct {
     pub fn cancel(self: *Self) void {
         self.cancelled = true;
     }
+
+    /// Cycle to the next filter mode.
+    pub fn cycleFilterMode(self: *Self) void {
+        self.filter_mode = self.filter_mode.next();
+    }
 };
 
 /// Display renderer for the TUI search interface.
@@ -251,7 +260,7 @@ pub const Display = struct {
         try self.moveCursor(1, 1);
 
         // Render prompt line
-        try self.renderPrompt(state.query, size.cols);
+        try self.renderPrompt(state.query, size.cols, state.filter_mode);
 
         // Render separator
         try self.moveCursor(2, 1);
@@ -264,18 +273,25 @@ pub const Display = struct {
         try self.moveCursor(size.rows, 1);
         try self.renderStatusBar(state, size.cols);
 
-        // Position cursor at end of query
-        try self.moveCursor(1, @intCast(state.query.len + 3)); // "> " + query
+        // Position cursor at end of query (after "[mode] > ")
+        const mode_prefix_len: u16 = @intCast(state.filter_mode.label().len + 4 + 2); // [label] + space + "> "
+        try self.moveCursor(1, @intCast(state.query.len + mode_prefix_len + 1));
         try self.showCursor();
     }
 
-    /// Render the search prompt line.
-    fn renderPrompt(self: *Self, query: []const u8, width: u16) !void {
+    /// Render the search prompt line with filter mode indicator.
+    fn renderPrompt(self: *Self, query: []const u8, width: u16, filter_mode: search_mod.FilterMode) !void {
         try self.clearLine();
+        // Show filter mode label in yellow: [global] > _
+        try self.write(FG_YELLOW ++ "[");
+        try self.write(filter_mode.label());
+        try self.write("]" ++ RESET ++ " ");
         try self.write(FG_GREEN ++ BOLD ++ "> " ++ RESET);
 
-        // Truncate query if too long
-        const max_query_len = if (width > 4) width - 4 else 1;
+        // Account for mode label + brackets + spaces + "> " + cursor
+        const mode_label_len: u16 = @intCast(filter_mode.label().len + 4); // [label] + space
+        const prefix_len = mode_label_len + 2; // + "> "
+        const max_query_len = if (width > prefix_len + 2) width - prefix_len - 2 else 1;
         if (query.len > max_query_len) {
             try self.write(query[0..max_query_len]);
         } else {
@@ -401,6 +417,8 @@ pub const Display = struct {
         try self.write(" navigate] [");
         try self.write(FG_CYAN ++ "Enter" ++ FG_BRIGHT_BLACK);
         try self.write(" select] [");
+        try self.write(FG_CYAN ++ "Ctrl+R" ++ FG_BRIGHT_BLACK);
+        try self.write(" filter] [");
         try self.write(FG_CYAN ++ "Esc" ++ FG_BRIGHT_BLACK);
         try self.write(" cancel]");
         try self.write(RESET);
@@ -822,6 +840,31 @@ test "SearchState - setVisibleRows" {
     // Smaller than reserved
     state.setVisibleRows(2);
     try std.testing.expectEqual(@as(usize, 1), state.visible_rows);
+}
+
+test "SearchState - default filter_mode is global" {
+    const state = SearchState.init();
+    try std.testing.expectEqual(search_mod.FilterMode.global, state.filter_mode);
+}
+
+test "SearchState - cycleFilterMode" {
+    var state = SearchState.init();
+    try std.testing.expectEqual(search_mod.FilterMode.global, state.filter_mode);
+
+    state.cycleFilterMode();
+    try std.testing.expectEqual(search_mod.FilterMode.directory, state.filter_mode);
+
+    state.cycleFilterMode();
+    try std.testing.expectEqual(search_mod.FilterMode.session, state.filter_mode);
+
+    state.cycleFilterMode();
+    try std.testing.expectEqual(search_mod.FilterMode.global, state.filter_mode);
+}
+
+test "FilterMode - label" {
+    try std.testing.expectEqualStrings("global", search_mod.FilterMode.global.label());
+    try std.testing.expectEqualStrings("directory", search_mod.FilterMode.directory.label());
+    try std.testing.expectEqualStrings("session", search_mod.FilterMode.session.label());
 }
 
 test "SearchState - cancel" {

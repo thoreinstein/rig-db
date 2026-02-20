@@ -60,9 +60,15 @@ fn outputZshScript(writer: anytype) !void {
         \\# rigdb shell integration for Zsh
         \\# Add to ~/.zshrc: eval "$(rigdb init zsh)"
         \\
-        \\# Initialize session UUID (persists for shell lifetime)
+        \\# Initialize session ID (persists for shell lifetime)
+        \\# Prefers tmux session name so all panes/windows share one session ID
         \\if [[ -z "${RIG_SESSION}" ]]; then
-        \\    export RIG_SESSION="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "unknown-$$-$RANDOM")"
+        \\    if [[ -n "${TMUX}" ]]; then
+        \\        export RIG_SESSION="$(tmux display-message -p '#S' 2>/dev/null)"
+        \\    fi
+        \\    if [[ -z "${RIG_SESSION}" ]]; then
+        \\        export RIG_SESSION="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "unknown-$$-$RANDOM")"
+        \\    fi
         \\fi
         \\
         \\# State variables
@@ -130,9 +136,15 @@ fn outputBashScript(writer: anytype) !void {
         \\# rigdb shell integration for Bash
         \\# Add to ~/.bashrc: eval "$(rigdb init bash)"
         \\
-        \\# Initialize session UUID (persists for shell lifetime)
+        \\# Initialize session ID (persists for shell lifetime)
+        \\# Prefers tmux session name so all panes/windows share one session ID
         \\if [[ -z "${RIG_SESSION}" ]]; then
-        \\    export RIG_SESSION="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "unknown-$$-$RANDOM")"
+        \\    if [[ -n "${TMUX}" ]]; then
+        \\        export RIG_SESSION="$(tmux display-message -p '#S' 2>/dev/null)"
+        \\    fi
+        \\    if [[ -z "${RIG_SESSION}" ]]; then
+        \\        export RIG_SESSION="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "unknown-$$-$RANDOM")"
+        \\    fi
         \\fi
         \\
         \\# State variables
@@ -294,6 +306,32 @@ test "run shows usage for empty args" {
 
     const output = fbs.getWritten();
     try std.testing.expect(mem.indexOf(u8, output, "Usage:") != null);
+}
+
+test "zsh script detects tmux session" {
+    var buffer: [8192]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+    const writer = fbs.writer();
+
+    const args = [_][]const u8{"zsh"};
+    try run(&args, writer);
+
+    const output = fbs.getWritten();
+    try std.testing.expect(mem.indexOf(u8, output, "TMUX") != null);
+    try std.testing.expect(mem.indexOf(u8, output, "tmux display-message") != null);
+}
+
+test "bash script detects tmux session" {
+    var buffer: [8192]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+    const writer = fbs.writer();
+
+    const args = [_][]const u8{"bash"};
+    try run(&args, writer);
+
+    const output = fbs.getWritten();
+    try std.testing.expect(mem.indexOf(u8, output, "TMUX") != null);
+    try std.testing.expect(mem.indexOf(u8, output, "tmux display-message") != null);
 }
 
 test "zsh script has valid syntax markers" {

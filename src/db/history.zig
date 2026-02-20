@@ -61,6 +61,7 @@ pub const UpdateParams = struct {
 pub const QueryParams = struct {
     command_pattern: ?[:0]const u8 = null,
     cwd: ?[:0]const u8 = null,
+    cwd_prefix: ?[:0]const u8 = null,
     session: ?[:0]const u8 = null,
     since_timestamp: ?i128 = null,
     until_timestamp: ?i128 = null,
@@ -217,6 +218,9 @@ pub fn query(
     if (params.cwd != null) {
         try where_clauses.append(allocator, "cwd = ?");
     }
+    if (params.cwd_prefix != null) {
+        try where_clauses.append(allocator, "cwd LIKE ?");
+    }
     if (params.session != null) {
         try where_clauses.append(allocator, "session = ?");
     }
@@ -266,6 +270,12 @@ pub fn query(
     }
     if (params.cwd) |cwd| {
         if (c.sqlite3_bind_text(stmt, bind_index, cwd.ptr, @intCast(cwd.len), c.SQLITE_STATIC) != c.SQLITE_OK) {
+            return HistoryError.BindFailed;
+        }
+        bind_index += 1;
+    }
+    if (params.cwd_prefix) |prefix| {
+        if (c.sqlite3_bind_text(stmt, bind_index, prefix.ptr, @intCast(prefix.len), c.SQLITE_STATIC) != c.SQLITE_OK) {
             return HistoryError.BindFailed;
         }
         bind_index += 1;
@@ -486,6 +496,29 @@ test "query returns results sorted by timestamp desc" {
     try std.testing.expectEqualStrings("third", results.items[0].command);
     try std.testing.expectEqualStrings("second", results.items[1].command);
     try std.testing.expectEqualStrings("first", results.items[2].command);
+}
+
+test "query filters by cwd prefix" {
+    const allocator = std.testing.allocator;
+    var db = try sqlite.initMemoryDb();
+    defer db.close();
+
+    const schema = @import("schema.zig");
+    try schema.initSchema(&db);
+
+    // Insert commands in different directories
+    try insertStart(&db, .{ .id = "id-p1", .timestamp = 1000, .command = "make build", .cwd = "/home/user/proj", .session = "s1", .hostname = "h1" });
+    try insertStart(&db, .{ .id = "id-p2", .timestamp = 2000, .command = "make test", .cwd = "/home/user/proj/src", .session = "s1", .hostname = "h1" });
+    try insertStart(&db, .{ .id = "id-p3", .timestamp = 3000, .command = "ls", .cwd = "/home/user/other", .session = "s1", .hostname = "h1" });
+
+    // Query with cwd prefix should match /home/user/proj and /home/user/proj/src
+    var results = try query(&db, allocator, .{ .cwd_prefix = "/home/user/proj%", .limit = 10 });
+    defer {
+        for (results.items) |*r| r.deinit(allocator);
+        results.deinit(allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), results.items.len);
 }
 
 test "insertStart rejects duplicate id" {

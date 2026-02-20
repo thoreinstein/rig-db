@@ -22,6 +22,7 @@ pub const Key = union(enum) {
     /// Control sequences
     ctrl_c,
     ctrl_d,
+    ctrl_r,
     ctrl_z,
     /// Unknown or unhandled input
     unknown,
@@ -217,6 +218,7 @@ pub fn parseKey(bytes: []const u8) Key {
         return switch (bytes[0]) {
             0x03 => .ctrl_c, // Ctrl+C
             0x04 => .ctrl_d, // Ctrl+D (EOF)
+            0x12 => .ctrl_r, // Ctrl+R
             0x1a => .ctrl_z, // Ctrl+Z
             0x1b => .escape, // Escape (alone)
             0x7f => .backspace, // Backspace (DEL)
@@ -313,6 +315,7 @@ test "parseKey - control characters" {
 
     try testing.expectEqual(Key.ctrl_c, parseKey(&[_]u8{0x03}));
     try testing.expectEqual(Key.ctrl_d, parseKey(&[_]u8{0x04}));
+    try testing.expectEqual(Key.ctrl_r, parseKey(&[_]u8{0x12}));
     try testing.expectEqual(Key.ctrl_z, parseKey(&[_]u8{0x1a}));
 }
 

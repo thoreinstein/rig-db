@@ -158,10 +158,10 @@ fn printHistoryUsage(writer: *std.Io.Writer) !void {
         \\  rigdb history <subcommand> [options]
         \\
         \\Subcommands:
-        \\  start -- <command>          Record start of a shell command (pre-exec hook)
-        \\  end --id <uuid> --exit <n>  Record end of a shell command (post-exec hook)
-        \\  list [--limit N] [-p PAT]   List recent history entries
-        \\  help                        Show this help message
+        \\  start -- <command>              Record start of a shell command (pre-exec hook)
+        \\  end --id <uuid> --exit <n>      Record end of a shell command (post-exec hook)
+        \\  list [--limit N] [-p PAT] [-s]  List recent history entries
+        \\  help                            Show this help message
         \\
         \\Examples:
         \\  rigdb history start -- "ls -la"

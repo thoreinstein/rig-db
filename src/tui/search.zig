@@ -2,6 +2,31 @@ const std = @import("std");
 const tui_reader = @import("reader.zig");
 const history = @import("../db/history.zig");
 
+/// Filter mode for TUI search — cycles with Ctrl+R
+pub const FilterMode = enum {
+    global,
+    directory,
+    session,
+
+    /// Cycle to the next filter mode
+    pub fn next(self: FilterMode) FilterMode {
+        return switch (self) {
+            .global => .directory,
+            .directory => .session,
+            .session => .global,
+        };
+    }
+
+    /// Human-readable label for the status bar
+    pub fn label(self: FilterMode) []const u8 {
+        return switch (self) {
+            .global => "global",
+            .directory => "directory",
+            .session => "session",
+        };
+    }
+};
+
 /// Options for searching history
 pub const SearchOptions = struct {
     /// Search query string
@@ -12,6 +37,10 @@ pub const SearchOptions = struct {
     current_dir_only: bool = false,
     /// Path to filter by (used when current_dir_only is true)
     current_dir: ?[]const u8 = null,
+    /// Use prefix match on cwd (includes subdirectories)
+    current_dir_prefix: bool = false,
+    /// Filter by session ID
+    session: ?[]const u8 = null,
     /// Deduplicate commands (show most recent occurrence only)
     unique: bool = true,
     /// Maximum number of results to return
@@ -61,15 +90,35 @@ pub fn search(
     // Build cwd filter if current_dir_only is set
     var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
     var cwd_filter: ?[:0]const u8 = null;
+    var cwd_prefix_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var cwd_prefix_filter: ?[:0]const u8 = null;
 
     if (options.current_dir_only) {
         if (options.current_dir) |dir| {
-            // Use provided directory
-            const cwd_z = std.fmt.bufPrintZ(&cwd_buf, "{s}", .{dir}) catch {
-                return SearchError.OutOfMemory;
-            };
-            cwd_filter = cwd_buf[0..cwd_z.len :0];
+            if (options.current_dir_prefix) {
+                // Prefix match: dir% (includes subdirectories)
+                const prefix_z = std.fmt.bufPrintZ(&cwd_prefix_buf, "{s}%", .{dir}) catch {
+                    return SearchError.OutOfMemory;
+                };
+                cwd_prefix_filter = cwd_prefix_buf[0..prefix_z.len :0];
+            } else {
+                // Exact match
+                const cwd_z = std.fmt.bufPrintZ(&cwd_buf, "{s}", .{dir}) catch {
+                    return SearchError.OutOfMemory;
+                };
+                cwd_filter = cwd_buf[0..cwd_z.len :0];
+            }
         }
+    }
+
+    // Build session filter
+    var session_buf: [256]u8 = undefined;
+    var session_filter: ?[:0]const u8 = null;
+    if (options.session) |sess| {
+        const sess_z = std.fmt.bufPrintZ(&session_buf, "{s}", .{sess}) catch {
+            return SearchError.OutOfMemory;
+        };
+        session_filter = session_buf[0..sess_z.len :0];
     }
 
     // Query parameters - request more if unique is enabled to account for deduplication
@@ -81,6 +130,8 @@ pub fn search(
     const params = history.QueryParams{
         .command_pattern = pattern,
         .cwd = cwd_filter,
+        .cwd_prefix = cwd_prefix_filter,
+        .session = session_filter,
         .limit = query_limit,
         .include_deleted = false,
     };

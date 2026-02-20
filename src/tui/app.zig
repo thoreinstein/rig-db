@@ -31,6 +31,11 @@ pub fn run(allocator: std.mem.Allocator) !?[]u8 {
     };
     defer reader.close();
 
+    // Capture context for filter modes
+    var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const current_dir: ?[]const u8 = std.posix.getcwd(&cwd_buf) catch null;
+    const session: ?[]const u8 = std.posix.getenv("RIG_SESSION");
+
     // Setup terminal (raw mode for key-by-key input)
     var term = Terminal.init();
     const guard = try RawModeGuard.init(&term);
@@ -59,7 +64,7 @@ pub fn run(allocator: std.mem.Allocator) !?[]u8 {
     }
 
     // Initial search (empty query = all recent commands)
-    doSearch(&reader, allocator, &state, &current_results, &current_display, "");
+    doSearch(&reader, allocator, &state, &current_results, &current_display, "", current_dir, session);
 
     // Render initial state
     display.clear() catch {};
@@ -91,6 +96,10 @@ pub fn run(allocator: std.mem.Allocator) !?[]u8 {
                 .arrow_down => state.moveDown(),
                 .page_up => state.pageUp(),
                 .page_down => state.pageDown(),
+                .ctrl_r => {
+                    state.cycleFilterMode();
+                    needs_search = true;
+                },
                 .char => |c| {
                     if (c >= 0x20 and c < 0x7f and query_len < query_buf.len) {
                         query_buf[query_len] = c;
@@ -103,7 +112,7 @@ pub fn run(allocator: std.mem.Allocator) !?[]u8 {
 
             if (needs_search) {
                 state.setQuery(query_buf[0..query_len]);
-                doSearch(&reader, allocator, &state, &current_results, &current_display, query_buf[0..query_len]);
+                doSearch(&reader, allocator, &state, &current_results, &current_display, query_buf[0..query_len], current_dir, session);
             }
 
             display.render(&state) catch {};
@@ -129,6 +138,8 @@ fn doSearch(
     current_results: *?[]search_mod.SearchResult,
     current_display: *?[]display_mod.DisplayRecord,
     query: []const u8,
+    current_dir: ?[]const u8,
+    session: ?[]const u8,
 ) void {
     // Free old results
     if (current_display.*) |d| allocator.free(d);
@@ -136,13 +147,28 @@ fn doSearch(
     if (current_results.*) |r| search_mod.freeResults(allocator, r);
     current_results.* = null;
 
-    // Run search
-    const results = search_mod.search(reader, allocator, .{
+    // Build search options based on current filter mode
+    var opts = search_mod.SearchOptions{
         .query = query,
         .substring_match = true,
         .unique = true,
         .limit = 100,
-    }) catch {
+    };
+
+    switch (state.filter_mode) {
+        .global => {},
+        .directory => {
+            opts.current_dir_only = true;
+            opts.current_dir = current_dir;
+            opts.current_dir_prefix = true;
+        },
+        .session => {
+            opts.session = session;
+        },
+    }
+
+    // Run search
+    const results = search_mod.search(reader, allocator, opts) catch {
         state.setResults(&.{});
         return;
     };
