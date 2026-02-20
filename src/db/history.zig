@@ -261,6 +261,9 @@ pub fn query(
     defer _ = c.sqlite3_finalize(stmt);
 
     // Bind filter parameters
+    // like_buf lives at function scope so it survives until sqlite3_step (SQLITE_STATIC)
+    var like_buf: [std.fs.max_path_bytes * 2 + 2]u8 = undefined;
+    var like_len: usize = 0;
     var bind_index: c_int = 1;
     if (params.command_pattern) |pattern| {
         if (c.sqlite3_bind_text(stmt, bind_index, pattern.ptr, @intCast(pattern.len), c.SQLITE_STATIC) != c.SQLITE_OK) {
@@ -281,9 +284,6 @@ pub fn query(
         }
         bind_index += 1;
         // Bind 2: LIKE pattern for subdirectories — escape SQL wildcards, then append /%
-        // Buffer sized for worst case: every char escaped (doubled) + "/%"
-        var like_buf: [std.fs.max_path_bytes * 2 + 2]u8 = undefined;
-        var like_len: usize = 0;
         // Strip trailing slashes so "/" becomes empty → pattern "/%", and
         // "/home/user/proj/" doesn't produce "/home/user/proj//%"
         var effective_len = prefix.len;

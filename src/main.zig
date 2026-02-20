@@ -160,13 +160,20 @@ fn printHistoryUsage(writer: *std.Io.Writer) !void {
         \\Subcommands:
         \\  start -- <command>              Record start of a shell command (pre-exec hook)
         \\  end --id <uuid> --exit <n>      Record end of a shell command (post-exec hook)
-        \\  list [--limit N] [-p PAT] [-s]  List recent history entries
+        \\  list [options]                  List recent history entries
         \\  help                            Show this help message
+        \\
+        \\List options:
+        \\  -n, --limit N                   Max entries to show (default 25)
+        \\  -p, --pattern PAT               Filter commands matching pattern
+        \\  -s, --session NAME              Filter by session (e.g. tmux session name)
+        \\  --cwd DIR                       Filter by working directory
         \\
         \\Examples:
         \\  rigdb history start -- "ls -la"
         \\  rigdb history end --id 01234567-89ab-cdef-0123-456789abcdef --exit 0
         \\  rigdb history list -n 50
+        \\  rigdb history list -s PROJ-1234
         \\
         \\The start command outputs a UUID that should be captured and passed
         \\to 'rigdb history end' when the command completes.
