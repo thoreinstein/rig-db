@@ -414,9 +414,10 @@ pub const Display = struct {
 };
 
 /// Format a timestamp as relative time (e.g., "2 min ago", "1 hour ago").
+/// Timestamp is in milliseconds since epoch (as stored in the database).
 pub fn formatRelativeTime(timestamp: i128, buffer: []u8) []const u8 {
-    const now = std.time.nanoTimestamp();
-    const diff_ns = now - timestamp;
+    const now_ms = @divTrunc(std.time.nanoTimestamp(), std.time.ns_per_ms);
+    const diff_ns = (now_ms - timestamp) * std.time.ns_per_ms;
 
     // Convert to seconds
     const diff_secs: i64 = @intCast(@divTrunc(diff_ns, std.time.ns_per_s));
@@ -516,93 +517,93 @@ pub fn historySliceToDisplay(allocator: std.mem.Allocator, records: []const hist
 test "formatRelativeTime - just now" {
     var buffer: [32]u8 = undefined;
 
-    // Use a timestamp very close to now
-    const now = std.time.nanoTimestamp();
-    const result = formatRelativeTime(now - 30 * std.time.ns_per_s, &buffer);
+    // Timestamps are in milliseconds since epoch
+    const now = std.time.milliTimestamp();
+    const result = formatRelativeTime(now - 30 * std.time.ms_per_s, &buffer);
     try std.testing.expectEqualStrings("just now", result);
 }
 
 test "formatRelativeTime - minutes" {
     var buffer: [32]u8 = undefined;
 
-    const now = std.time.nanoTimestamp();
+    const now = std.time.milliTimestamp();
 
     // 1 minute ago
-    const one_min = formatRelativeTime(now - 90 * std.time.ns_per_s, &buffer);
+    const one_min = formatRelativeTime(now - 90 * std.time.ms_per_s, &buffer);
     try std.testing.expectEqualStrings("1 min ago", one_min);
 
     // Multiple minutes
-    const five_min = formatRelativeTime(now - 300 * std.time.ns_per_s, &buffer);
+    const five_min = formatRelativeTime(now - 300 * std.time.ms_per_s, &buffer);
     try std.testing.expectEqualStrings("5 min ago", five_min);
 }
 
 test "formatRelativeTime - hours" {
     var buffer: [32]u8 = undefined;
 
-    const now = std.time.nanoTimestamp();
+    const now = std.time.milliTimestamp();
 
     // 1 hour ago
-    const one_hour = formatRelativeTime(now - 3700 * std.time.ns_per_s, &buffer);
+    const one_hour = formatRelativeTime(now - 3700 * std.time.ms_per_s, &buffer);
     try std.testing.expectEqualStrings("1 hour ago", one_hour);
 
     // Multiple hours
-    const five_hours = formatRelativeTime(now - 18000 * std.time.ns_per_s, &buffer);
+    const five_hours = formatRelativeTime(now - 18000 * std.time.ms_per_s, &buffer);
     try std.testing.expectEqualStrings("5 hours ago", five_hours);
 }
 
 test "formatRelativeTime - days" {
     var buffer: [32]u8 = undefined;
 
-    const now = std.time.nanoTimestamp();
+    const now = std.time.milliTimestamp();
 
     // Yesterday
-    const yesterday = formatRelativeTime(now - 100000 * std.time.ns_per_s, &buffer);
+    const yesterday = formatRelativeTime(now - 100000 * std.time.ms_per_s, &buffer);
     try std.testing.expectEqualStrings("yesterday", yesterday);
 
     // Multiple days
-    const three_days = formatRelativeTime(now - 259200 * std.time.ns_per_s, &buffer);
+    const three_days = formatRelativeTime(now - 259200 * std.time.ms_per_s, &buffer);
     try std.testing.expectEqualStrings("3 days ago", three_days);
 }
 
 test "formatRelativeTime - weeks" {
     var buffer: [32]u8 = undefined;
 
-    const now = std.time.nanoTimestamp();
+    const now = std.time.milliTimestamp();
 
     // 1 week ago
-    const one_week = formatRelativeTime(now - 700000 * std.time.ns_per_s, &buffer);
+    const one_week = formatRelativeTime(now - 700000 * std.time.ms_per_s, &buffer);
     try std.testing.expectEqualStrings("1 week ago", one_week);
 
     // Multiple weeks
-    const three_weeks = formatRelativeTime(now - 2000000 * std.time.ns_per_s, &buffer);
+    const three_weeks = formatRelativeTime(now - 2000000 * std.time.ms_per_s, &buffer);
     try std.testing.expectEqualStrings("3 weeks ago", three_weeks);
 }
 
 test "formatRelativeTime - months" {
     var buffer: [32]u8 = undefined;
 
-    const now = std.time.nanoTimestamp();
+    const now = std.time.milliTimestamp();
 
     // 1 month ago
-    const one_month = formatRelativeTime(now - 3000000 * std.time.ns_per_s, &buffer);
+    const one_month = formatRelativeTime(now - 3000000 * std.time.ms_per_s, &buffer);
     try std.testing.expectEqualStrings("1 month ago", one_month);
 
     // Multiple months
-    const six_months = formatRelativeTime(now - 15552000 * std.time.ns_per_s, &buffer);
+    const six_months = formatRelativeTime(now - 15552000 * std.time.ms_per_s, &buffer);
     try std.testing.expectEqualStrings("6 months ago", six_months);
 }
 
 test "formatRelativeTime - years" {
     var buffer: [32]u8 = undefined;
 
-    const now = std.time.nanoTimestamp();
+    const now = std.time.milliTimestamp();
 
     // 1 year ago
-    const one_year = formatRelativeTime(now - 40000000 * std.time.ns_per_s, &buffer);
+    const one_year = formatRelativeTime(now - 40000000 * std.time.ms_per_s, &buffer);
     try std.testing.expectEqualStrings("1 year ago", one_year);
 
     // Multiple years
-    const three_years = formatRelativeTime(now - 100000000 * std.time.ns_per_s, &buffer);
+    const three_years = formatRelativeTime(now - 100000000 * std.time.ms_per_s, &buffer);
     try std.testing.expectEqualStrings("3 years ago", three_years);
 }
 
