@@ -41,8 +41,10 @@ pub const Terminal = struct {
 
     /// Original termios settings to restore on exit.
     original_termios: ?posix.termios = null,
-    /// File descriptor for the terminal (stdin).
+    /// File descriptor for the terminal.
     fd: posix.fd_t,
+    /// Whether we opened /dev/tty and own the fd (must close on deinit).
+    owns_fd: bool = false,
     /// Flag indicating if raw mode is currently active.
     is_raw: bool = false,
     /// Current terminal size (columns, rows).
@@ -60,9 +62,16 @@ pub const Terminal = struct {
     var global_instance: ?*Self = null;
 
     /// Initialize the terminal handler.
+    /// Opens /dev/tty directly so the TUI works even when stdin/stdout
+    /// are redirected (e.g. inside $() command substitution for Ctrl+R).
     pub fn init() Self {
+        const tty_file = std.fs.openFileAbsolute("/dev/tty", .{ .mode = .read_write }) catch {
+            // Fall back to stdin if /dev/tty is unavailable (e.g. in tests)
+            return Self{ .fd = posix.STDIN_FILENO };
+        };
         return Self{
-            .fd = posix.STDIN_FILENO,
+            .fd = tty_file.handle,
+            .owns_fd = true,
         };
     }
 
@@ -125,6 +134,10 @@ pub const Terminal = struct {
         }
         self.is_raw = false;
         global_instance = null;
+        if (self.owns_fd) {
+            posix.close(self.fd);
+            self.owns_fd = false;
+        }
     }
 
     /// Register signal handlers for cleanup and resize.
