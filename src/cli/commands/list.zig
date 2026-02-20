@@ -92,6 +92,7 @@ fn parseArgs(args: []const []const u8) ListError!ListOptions {
             if (i + 1 >= args.len) return ListError.InvalidLimit;
             i += 1;
             opts.limit = std.fmt.parseInt(u32, args[i], 10) catch return ListError.InvalidLimit;
+            if (opts.limit == 0) return ListError.InvalidLimit;
         } else if (mem.eql(u8, arg, "--cwd")) {
             if (i + 1 < args.len) {
                 i += 1;
@@ -145,6 +146,12 @@ test "parseArgs cwd flag" {
 
 test "parseArgs invalid limit" {
     const args = [_][]const u8{ "--limit", "abc" };
+    const result = parseArgs(&args);
+    try std.testing.expectError(ListError.InvalidLimit, result);
+}
+
+test "parseArgs zero limit" {
+    const args = [_][]const u8{ "--limit", "0" };
     const result = parseArgs(&args);
     try std.testing.expectError(ListError.InvalidLimit, result);
 }

@@ -67,7 +67,12 @@ pub fn run(allocator: std.mem.Allocator) !?[]u8 {
 
     // Event loop
     while (true) {
-        if (term.readKey() catch null) |key| {
+        const maybe_key = term.readKey() catch {
+            // Non-transient read error (closed fd, non-interactive stdin, etc.)
+            state.cancel();
+            break;
+        };
+        if (maybe_key) |key| {
             var needs_search = false;
 
             switch (key) {
