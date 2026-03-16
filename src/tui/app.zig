@@ -66,7 +66,7 @@ pub fn run(allocator: std.mem.Allocator, initial_cwd: ?[]const u8, initial_sessi
     }
 
     // Initial search (empty query = all recent commands)
-    doSearch(&reader, allocator, &state, &current_results, &current_display, "", current_dir, session);
+    doSearch(&reader, allocator, &state, &current_results, &current_display);
 
     // Render initial state
     display.clear() catch {};
@@ -114,7 +114,7 @@ pub fn run(allocator: std.mem.Allocator, initial_cwd: ?[]const u8, initial_sessi
 
             if (needs_search) {
                 state.setQuery(query_buf[0..query_len]);
-                doSearch(&reader, allocator, &state, &current_results, &current_display, query_buf[0..query_len], current_dir, session);
+                doSearch(&reader, allocator, &state, &current_results, &current_display);
             }
 
             display.render(&state) catch {};
@@ -139,19 +139,17 @@ fn doSearch(
     state: *SearchState,
     current_results: *?[]search_mod.SearchResult,
     current_display: *?[]display_mod.DisplayRecord,
-    query: []const u8,
-    current_dir: ?[]const u8,
-    session: ?[]const u8,
 ) void {
-    // Free old results
+    // Free old results and immediately clear state.results to avoid dangling pointer
     if (current_display.*) |d| allocator.free(d);
     current_display.* = null;
+    state.setResults(&.{});
     if (current_results.*) |r| search_mod.freeResults(allocator, r);
     current_results.* = null;
 
     // Build search options based on current filter mode
     var opts = search_mod.SearchOptions{
-        .query = query,
+        .query = state.query,
         .substring_match = true,
         .unique = true,
         .limit = 100,
@@ -161,11 +159,11 @@ fn doSearch(
         .global => {},
         .directory => {
             opts.current_dir_only = true;
-            opts.current_dir = current_dir;
+            opts.current_dir = state.current_dir;
             opts.current_dir_prefix = true;
         },
         .session => {
-            opts.session = session;
+            opts.session = state.session;
         },
     }
 
