@@ -377,7 +377,11 @@ test "Key.isPrintable" {
 
 test "Terminal.init" {
     const term = Terminal.init();
-    try std.testing.expectEqual(posix.STDIN_FILENO, term.fd);
+    if (term.owns_fd) {
+        try std.testing.expect(term.fd != posix.STDIN_FILENO);
+    } else {
+        try std.testing.expectEqual(posix.STDIN_FILENO, term.fd);
+    }
     try std.testing.expect(!term.is_raw);
     try std.testing.expect(term.original_termios == null);
 }

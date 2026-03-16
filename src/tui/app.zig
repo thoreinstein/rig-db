@@ -17,7 +17,7 @@ const ALT_SCREEN_OFF = "\x1b[?1049l";
 /// Run the interactive search TUI.
 /// Renders to stderr (so stdout can be captured by shell for Ctrl+R).
 /// Returns the selected command (caller must free), or null if cancelled.
-pub fn run(allocator: std.mem.Allocator) !?[]u8 {
+pub fn run(allocator: std.mem.Allocator, initial_cwd: ?[]const u8, initial_session: ?[]const u8) !?[]u8 {
     // Open database read-only
     var reader = HistoryReader.open(allocator) catch |err| {
         switch (err) {
@@ -33,8 +33,8 @@ pub fn run(allocator: std.mem.Allocator) !?[]u8 {
 
     // Capture context for filter modes
     var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const current_dir: ?[]const u8 = std.posix.getcwd(&cwd_buf) catch null;
-    const session: ?[]const u8 = std.posix.getenv("RIG_SESSION");
+    const current_dir: ?[]const u8 = if (initial_cwd) |ic| ic else std.posix.getcwd(&cwd_buf) catch null;
+    const session: ?[]const u8 = if (initial_session) |is| is else std.posix.getenv("RIG_SESSION");
 
     // Setup terminal (raw mode for key-by-key input)
     var term = Terminal.init();
@@ -50,6 +50,8 @@ pub fn run(allocator: std.mem.Allocator) !?[]u8 {
 
     var display = Display.initWithOutput(&term, output);
     var state = SearchState.init();
+    state.current_dir = current_dir;
+    state.session = session;
 
     // Query buffer
     var query_buf: [256]u8 = undefined;

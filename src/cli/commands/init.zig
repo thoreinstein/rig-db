@@ -116,7 +116,7 @@ fn outputZshScript(writer: anytype) !void {
         \\# Interactive history search (Ctrl+R)
         \\_rig_search() {
         \\    local selected
-        \\    selected="$(rigdb search)"
+        \\    selected="$(rigdb search --cwd "$PWD" --session "$RIG_SESSION")"
         \\    if [[ -n "$selected" ]]; then
         \\        BUFFER="$selected"
         \\        CURSOR=${#BUFFER}
@@ -225,7 +225,7 @@ fn outputBashScript(writer: anytype) !void {
         \\# Interactive history search (Ctrl+R)
         \\_rig_search() {
         \\    local selected
-        \\    selected="$(rigdb search)"
+        \\    selected="$(rigdb search --cwd "$PWD" --session "$RIG_SESSION")"
         \\    if [[ -n "$selected" ]]; then
         \\        READLINE_LINE="$selected"
         \\        READLINE_POINT=${#READLINE_LINE}

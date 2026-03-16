@@ -29,7 +29,7 @@ pub fn main() !void {
     } else if (std.mem.eql(u8, command, "init")) {
         try runInitCommand(args[2..], &stdout.interface);
     } else if (std.mem.eql(u8, command, "search")) {
-        try runSearchCommand(allocator);
+        try runSearchCommand(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "daemon")) {
         const daemon_mod = @import("daemon/daemon.zig");
         try daemon_mod.daemonMain(allocator);
@@ -139,9 +139,34 @@ fn runInitCommand(args: []const []const u8, writer: *std.Io.Writer) !void {
 }
 
 /// Handle the search command (interactive TUI)
-fn runSearchCommand(allocator: std.mem.Allocator) !void {
+fn runSearchCommand(allocator: std.mem.Allocator, args: []const []const u8) !void {
+    var initial_cwd: ?[]const u8 = null;
+    var initial_session: ?[]const u8 = null;
+
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "--cwd")) {
+            if (i + 1 < args.len) {
+                i += 1;
+                const raw_cwd = args[i];
+                // Resolve relative paths to absolute paths
+                initial_cwd = std.fs.realpathAlloc(allocator, raw_cwd) catch |err| blk: {
+                    std.debug.print("Warning: Failed to resolve --cwd '{s}': {}\n", .{ raw_cwd, err });
+                    break :blk null;
+                };
+            }
+        } else if (std.mem.eql(u8, arg, "--session")) {
+            if (i + 1 < args.len) {
+                i += 1;
+                initial_session = args[i];
+            }
+        }
+    }
+    defer if (initial_cwd) |path| allocator.free(path);
+
     const app = @import("tui/app.zig");
-    const selected = try app.run(allocator);
+    const selected = try app.run(allocator, initial_cwd, initial_session);
     if (selected) |cmd| {
         defer allocator.free(cmd);
         const stdout = std.fs.File.stdout();

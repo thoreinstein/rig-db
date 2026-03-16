@@ -28,6 +28,10 @@ pub const SearchState = struct {
     visible_rows: usize,
     /// Current filter mode (global/directory/session)
     filter_mode: search_mod.FilterMode,
+    /// Current working directory for filtering
+    current_dir: ?[]const u8,
+    /// Current session ID for filtering
+    session: ?[]const u8,
     /// Whether the search was cancelled
     cancelled: bool,
 
@@ -42,6 +46,8 @@ pub const SearchState = struct {
             .scroll_offset = 0,
             .visible_rows = 10, // Default, will be updated based on terminal size
             .filter_mode = .global,
+            .current_dir = null,
+            .session = null,
             .cancelled = false,
         };
     }
@@ -422,6 +428,28 @@ pub const Display = struct {
         try self.write(" filter] [");
         try self.write(FG_CYAN ++ "Esc" ++ FG_BRIGHT_BLACK);
         try self.write(" cancel]");
+
+        // Append filter context
+        switch (state.filter_mode) {
+            .global => {},
+            .directory => {
+                if (state.current_dir) |dir| {
+                    try self.write("  " ++ FG_YELLOW ++ "[dir: ");
+                    var buf: [64]u8 = undefined;
+                    try self.write(truncateText(dir, 30, &buf));
+                    try self.write("]" ++ FG_BRIGHT_BLACK);
+                }
+            },
+            .session => {
+                if (state.session) |sess| {
+                    try self.write("  " ++ FG_YELLOW ++ "[session: ");
+                    var buf: [64]u8 = undefined;
+                    try self.write(truncateText(sess, 20, &buf));
+                    try self.write("]" ++ FG_BRIGHT_BLACK);
+                }
+            },
+        }
+
         try self.write(RESET);
     }
 
