@@ -8,3 +8,5 @@ zig-out/
 # Test binaries
 test_fork
 test_stdout
+.beads/dolt-*
+.beads/backup/*
